@@ -1,0 +1,16 @@
+polars
+pyarrow
+pandas
+requests
+geopandas
+shapely
+fiona
+pyproj
+streamlit
+plotly
+scikit-learn
+tqdm
+numpy
+matplotlib
+jupyter
+ipykernel
