@@ -7,7 +7,7 @@ taxi_df = pl.read_parquet(
 
 # Load weather
 weather_df = pl.read_parquet(
-    "data/raw/weather/nyc_weather_2023_2024.parquet"
+    "data/interim/weather/nyc_weather_2023_2024.parquet"
 )
 
 # Convert datetime weather

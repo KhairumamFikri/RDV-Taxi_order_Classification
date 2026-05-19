@@ -2,7 +2,7 @@ import requests
 import polars as pl
 from pathlib import Path
 
-OUTPUT_DIR = "data/raw/weather"
+OUTPUT_DIR = "data/interim/weather"
 Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
 
 URL = "https://archive-api.open-meteo.com/v1/archive"
