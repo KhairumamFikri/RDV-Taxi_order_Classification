@@ -2,7 +2,7 @@ import polars as pl
 from pathlib import Path
 from datetime import datetime
 
-RAW_DIR = "data/raw/taxi"
+RAW_DIR = "data/interim/taxi_trip_data"
 OUTPUT_DIR = "data/processed"
 
 Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)

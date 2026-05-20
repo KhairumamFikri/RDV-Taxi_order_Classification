@@ -7,7 +7,7 @@ BASE_URL = "https://d37ci6vzurychx.cloudfront.net/trip-data"
 START_YEAR = 2023
 END_YEAR = 2024
 
-OUTPUT_DIR = "data/raw/taxi"
+OUTPUT_DIR = "data/interim/taxi_trip_data"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
