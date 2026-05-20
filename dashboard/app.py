@@ -5,7 +5,6 @@ import plotly.graph_objects as go
 import streamlit as st
 from pathlib import Path
 from pyproj import Transformer
-from copy import deepcopy
 
 # --- CONFIG & PATHS ---
 DATASET_PATH = Path("data/processed/dashboard_density_dataset.parquet")
