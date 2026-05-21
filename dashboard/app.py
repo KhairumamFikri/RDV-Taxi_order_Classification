@@ -5,7 +5,6 @@ import plotly.graph_objects as go
 import streamlit as st
 from pathlib import Path
 from pyproj import Transformer
-from copy import deepcopy
 
 # --- CONFIG & PATHS ---
 # Menentukan lokasi dataset utama yang dipakai dashboard.
