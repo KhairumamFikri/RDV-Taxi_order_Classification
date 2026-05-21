@@ -22,6 +22,9 @@ models/
 # OS
 .DS_Store
 
-# AI Agent
-CODEX.md
-PROJECT.md
+# Docs
+docs/
+
+# Venv
+.venv/
+
