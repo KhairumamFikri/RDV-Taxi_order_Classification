@@ -7,17 +7,22 @@ from pathlib import Path
 from pyproj import Transformer
 
 # --- CONFIG & PATHS ---
+# Menentukan lokasi dataset utama yang dipakai dashboard.
 DATASET_PATH = Path("data/processed/dashboard_density_dataset.parquet")
 WEATHER_PATH = Path("data/processed/taxi_weather_merged.parquet")
 GEOJSON_PATH = Path("data/geo/taxi_zones.geojson")
+
+# Mengubah koordinat taxi zone NYC ke format latitude/longitude.
 NYC_ZONE_TRANSFORMER = Transformer.from_crs("EPSG:2263", "EPSG:4326", always_xy=True)
 
+# Warna untuk setiap kategori kepadatan.
 DENSITY_COLOR_MAP = {
     "Sepi": "#10B981",    # Emerald 500
     "Normal": "#F59E0B",  # Amber 500
     "Sibuk": "#EF4444",   # Red 500
 }
 
+# Mapping kode cuaca Open-Meteo menjadi teks yang mudah dibaca.
 WEATHER_DESC = {
     0: "Cerah", 1: "Cerah Berawan", 2: "Berawan", 3: "Mendung",
     51: "Gerimis", 53: "Gerimis", 55: "Hujan Ringan",
@@ -25,6 +30,7 @@ WEATHER_DESC = {
     71: "Salju", 73: "Salju", 75: "Badai Salju"
 }
 
+# Mengatur konfigurasi awal halaman Streamlit.
 st.set_page_config(
     page_title="Smart Taxi Radar",
     page_icon="🚕",
@@ -173,25 +179,37 @@ st.markdown(
 
 # --- DATA LOGIC ---
 def normalize_density_df(df: pd.DataFrame) -> pd.DataFrame:
+    # Menyiapkan skor numerik agar warna peta konsisten.
     score_map = {"Low": 1, "Medium": 2, "High": 3, "Sepi": 1, "Normal": 2, "Sibuk": 3}
+
+    # Membuat density_score jika dataset belum memilikinya.
     if "density_score" not in df.columns:
         source_col = next((c for c in ["density_level", "density_label"] if c in df.columns), None)
         df["density_score"] = df[source_col].map(score_map).fillna(1) if source_col else 1
+
+    # Membuat density_label Indonesia jika hanya tersedia density_level.
     if "density_label" not in df.columns and "density_level" in df.columns:
         df["density_label"] = df["density_level"].map({"Low": "Sepi", "Medium": "Normal", "High": "Sibuk"})
     return df
 
 @st.cache_data
 def load_all_data():
+    # Menghentikan aplikasi jika dataset utama tidak tersedia.
     if not DATASET_PATH.exists(): raise FileNotFoundError("Dataset missing.")
+
+    # Membaca dataset density utama untuk dashboard.
     d_df = pd.read_parquet(DATASET_PATH)
     d_df = normalize_density_df(d_df)
+
+    # Membuat kolom tanggal dan jam untuk filter sidebar.
     d_df["pickup_hour"] = pd.to_datetime(d_df["pickup_hour"])
     d_df["date"] = d_df["pickup_hour"].dt.date
     d_df["hour"] = d_df["pickup_hour"].dt.hour
     
+    # Membaca data cuaca jika file tersedia.
     w_df = pd.read_parquet(WEATHER_PATH) if WEATHER_PATH.exists() else pd.DataFrame()
     if not w_df.empty:
+        # Menyamakan format waktu cuaca dengan dataset density.
         w_df["pickup_hour"] = pd.to_datetime(w_df["pickup_hour"])
         w_df["date"] = w_df["pickup_hour"].dt.date
         w_df["hour"] = w_df["pickup_hour"].dt.hour
@@ -199,8 +217,10 @@ def load_all_data():
 
 @st.cache_data
 def load_geo():
+    # Membaca GeoJSON taxi zone NYC.
     with open(GEOJSON_PATH, "r", encoding="utf-8") as f: data = json.load(f)
-    # CRS transform
+
+    # Mengubah semua koordinat polygon dari EPSG:2263 ke EPSG:4326.
     for feat in data["features"]:
         coords = feat["geometry"]["coordinates"]
         def tr(c):
@@ -208,7 +228,7 @@ def load_geo():
             return [tr(sub) for sub in c]
         feat["geometry"]["coordinates"] = tr(coords)
     
-    # Centroids
+    # Menghitung titik tengah sederhana untuk marker setiap zona.
     centroids = []
     for feat in data["features"]:
         props = feat["properties"]
@@ -224,31 +244,39 @@ def load_geo():
         })
     return data, pd.DataFrame(centroids)
 
+# Memuat semua data sebelum komponen dashboard dirender.
 d_df, w_df = load_all_data()
 geo_data, centroids_df = load_geo()
 
 # --- SIDEBAR (CONTROL CENTER) ---
 with st.sidebar:
-    st.markdown("<div class='sidebar-header'><h2 style='margin:0; color:#38BDF8;'>RADAR CORE</h2><small style='color:#64748B;'>V2.0 STABLE</small></div>", unsafe_allow_html=True)
+    st.markdown("<div class='sidebar-header'><h2 style='margin:0; color:#38BDF8;'>Control Panel</h2><small style='color:#64748B;'>Live Monitoring</small></div>", unsafe_allow_html=True)
     
+    # Memilih mode analisis dashboard.
     analysis_mode = st.radio("Sistem Mode", ["Standard Analytics", "Weather Comparison"], index=0)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
     if analysis_mode == "Standard Analytics":
+        # Filter utama untuk tanggal, jam, dan kategori density.
         sel_date = st.date_input("Analytic Date", d_df["date"].min())
         sel_hour = st.slider("Time Window", 0, 23, 10)
         sel_density = st.multiselect("Density Filter", ["Sepi", "Normal", "Sibuk"], ["Sepi", "Normal", "Sibuk"])
     else:
+        # Filter khusus mode perbandingan cuaca.
         st.info("Mode Perbandingan: Bandingkan kondisi Cerah vs Hujan pada jam yang sama.")
         sel_hour = st.slider("Target Hour", 0, 23, 10)
         sel_density = ["Sepi", "Normal", "Sibuk"]
 
     st.markdown("---")
     st.markdown("<div class='section-title'>Table Configuration</div>", unsafe_allow_html=True)
+
+    # Mengatur jumlah zona yang tampil di Priority Queue.
     pq_limit = st.select_slider("Priority Queue Limit", options=[3, 5, 10, 25], value=10)
     
     st.markdown("---")
+
+    # Menampilkan status ketersediaan data cuaca.
     if not w_df.empty:
         st.success("Weather Engine: Linked")
     else:
@@ -256,25 +284,30 @@ with st.sidebar:
 
 # --- CORE LOGIC ---
 def get_snapshot(date, hour, density_list):
+    # Mengambil data density pada tanggal dan jam yang dipilih.
     snap = d_df[(d_df["date"] == date) & (d_df["hour"] == hour)].copy()
-    # Apply density filter AFTER snapshot to ensure map only shows filtered zones
+
+    # Menerapkan filter density agar peta hanya menampilkan zona terpilih.
     snap = snap[snap["density_label"].isin(density_list)]
+
+    # Menggabungkan data demand dengan centroid zona untuk marker peta.
     return snap.merge(centroids_df, left_on="PULocationID", right_on="LocationID", how="inner")
 
 def get_weather(date, hour):
+    # Mengambil data cuaca pada tanggal dan jam yang dipilih.
     if w_df.empty: return None
     m = w_df[(w_df["date"] == date) & (w_df["hour"] == hour)]
     return m.iloc[0] if not m.empty else None
 
 # --- UI RENDERING ---
-st.markdown("<div class='header-section'><div class='brand-text'><h1>SMART TAXI RADAR</h1><small style='color:#64748B;'>New York City Geospasial Intelligence</small></div></div>", unsafe_allow_html=True)
+st.markdown("<div class='header-section'><div class='brand-text'><h1>SMART TAXI RADAR</h1><small style='color:#64748B;'>Geospatial Dashboard for NYC Taxi Order Density Classification and Weather-Based Demand Analysis</small></div></div>", unsafe_allow_html=True)
 
 if analysis_mode == "Standard Analytics":
-    # Snapshot
+    # Mengambil snapshot data sesuai filter user.
     snap = get_snapshot(sel_date, sel_hour, sel_density)
     weather = get_weather(sel_date, sel_hour)
     
-    # Weather Panel
+    # Menampilkan panel kondisi cuaca pada waktu terpilih.
     if weather is not None:
         st.markdown(f"""
         <div class="weather-panel">
@@ -287,7 +320,7 @@ if analysis_mode == "Standard Analytics":
         </div>
         """, unsafe_allow_html=True)
 
-    # Stat Grid
+    # Menghitung angka ringkasan untuk kartu statistik.
     total_pax = snap["trip_count"].sum()
     busy_z = snap[snap["density_score"] == 3]["PULocationID"].nunique()
     top_row = snap.sort_values("trip_count", ascending=False).iloc[0] if not snap.empty else None
@@ -301,21 +334,23 @@ if analysis_mode == "Standard Analytics":
     </div>
     """, unsafe_allow_html=True)
 
-    # Visuals
+    # Membagi area visual menjadi peta dan priority queue.
     c1, c2 = st.columns([2, 1], gap="medium")
     with c1:
         st.markdown("<div class='section-title'>Spatial Density Distribution</div>", unsafe_allow_html=True)
         if not snap.empty:
             fig = go.Figure()
-            # Choropleth restricted to filtered data
+
+            # Membuat layer polygon zona berdasarkan skor density.
             fig.add_trace(go.Choroplethmap(
                 geojson=geo_data, locations=snap["PULocationID"], z=snap["density_score"],
                 featureidkey="properties.LocationID", colorscale=[[0,"#10B981"],[0.5,"#F59E0B"],[1,"#EF4444"]],
                 showscale=False, marker_opacity=0.5, marker_line_width=0.3
             ))
-            # Markers restricted to filtered data
+            # Mengatur ukuran marker berdasarkan jumlah demand.
             snap["m_size"] = 8 + (snap["trip_count"] / snap["trip_count"].max() * 20)
             for l in ["Sepi", "Normal", "Sibuk"]:
+                # Menambahkan marker per kategori density.
                 sub = snap[snap["density_label"] == l]
                 if sub.empty: continue
                 fig.add_trace(go.Scattermap(
@@ -323,6 +358,8 @@ if analysis_mode == "Standard Analytics":
                     marker=dict(size=sub["m_size"], color=DENSITY_COLOR_MAP[l], opacity=0.9),
                     text=sub["zone"] + "<br>Demand: " + sub["trip_count"].astype(str)
                 ))
+
+            # Mengatur tampilan peta Plotly.
             fig.update_layout(map=dict(style="carto-darkmatter", center={"lat":40.7128,"lon":-74.006}, zoom=10),
                               margin=dict(l=0,r=0,t=0,b=0), height=500, paper_bgcolor="rgba(0,0,0,0)",
                               legend=dict(orientation="h", y=0.02, x=0.02, bgcolor="rgba(15,23,42,0.8)"))
@@ -332,10 +369,12 @@ if analysis_mode == "Standard Analytics":
 
     with c2:
         st.markdown("<div class='section-title'>Priority Queue Analytics</div>", unsafe_allow_html=True)
+
+        # Mengambil zona dengan demand tertinggi.
         pq = snap.sort_values("trip_count", ascending=False).head(pq_limit).copy()
         
         if not pq.empty:
-            # Visual Bar Chart for Top Zones
+            # Membuat bar chart untuk zona prioritas.
             fig_pq = px.bar(pq, x="trip_count", y="zone", orientation="h",
                              color="trip_count", color_continuous_scale="Blues",
                              template="plotly_dark", height=180)
@@ -345,7 +384,7 @@ if analysis_mode == "Standard Analytics":
                                  yaxis_autorange="reversed", yaxis_title="")
             st.plotly_chart(fig_pq, use_container_width=True, config={'displayModeBar': False})
             
-            # Data Table
+            # Menampilkan tabel zona prioritas.
             pq_table = pq[["zone", "trip_count"]].rename(columns={"zone": "Area", "trip_count": "Pax"})
             st.dataframe(pq_table, hide_index=True, use_container_width=True, height=250)
         else:
@@ -354,8 +393,11 @@ if analysis_mode == "Standard Analytics":
     # --- HOURLY TREND INSIDE ANALYTICS ---
     st.markdown("<div style='margin-top:2rem;'></div>", unsafe_allow_html=True)
     st.markdown("<div class='section-title'>Statistical Hourly Demand (00:00 - 23:00)</div>", unsafe_allow_html=True)
+
+    # Mengagregasi total demand per jam untuk tanggal terpilih.
     day_data = d_df[d_df["date"] == sel_date].groupby("hour")["trip_count"].sum().reset_index()
 
+    # Membuat grafik tren demand harian.
     fig_trend = go.Figure()
     fig_trend.add_trace(go.Scatter(
         x=day_data["hour"], y=day_data["trip_count"],
@@ -363,9 +405,12 @@ if analysis_mode == "Standard Analytics":
         fill='tozeroy', fillcolor='rgba(56, 189, 248, 0.1)',
         name="Total Demand"
     ))
+
+    # Menandai jam yang sedang dipilih user.
     fig_trend.add_vline(x=sel_hour, line_dash="dash", line_color="#EF4444", 
                         annotation_text=f"Selected ({sel_hour:02d}:00)", annotation_position="top right")
 
+    # Mengatur tampilan grafik tren.
     fig_trend.update_layout(
         height=300, margin=dict(l=10,r=10,t=40,b=20),
         template="plotly_dark",
@@ -380,8 +425,7 @@ else:
     # WEATHER COMPARISON MODE
     st.markdown("<div class='compare-header'>WEATHER IMPACT ANALYSIS: CLEAR SKY VS HEAVY PRECIPITATION</div>", unsafe_allow_html=True)
     
-    # Identify sample dates (Cerah vs Hujan)
-    # Search for precipitation > 2.0 (Hujan) and precipitation == 0 (Cerah) at the same hour
+    # Mencari contoh tanggal cerah dan hujan pada jam yang sama.
     rainy_samples = w_df[(w_df["hour"] == sel_hour) & (w_df["precipitation"] > 2.0)].head(1)
     clear_samples = w_df[(w_df["hour"] == sel_hour) & (w_df["precipitation"] == 0)].head(1)
     
@@ -391,21 +435,24 @@ else:
         rd = rainy_samples.iloc[0]["date"]
         cd = clear_samples.iloc[0]["date"]
         
+        # Membuat dua kolom perbandingan: cerah dan hujan.
         col_c, col_r = st.columns(2)
         
         for col, date, title, color in zip([col_c, col_r], [cd, rd], ["CLEAR CONDITION", "RAINY CONDITION"], ["#10B981", "#EF4444"]):
             with col:
                 st.markdown(f"<div style='text-align:center; padding:10px; border-bottom:2px solid {color}; margin-bottom:15px; font-weight:800;'>{title} ({date})</div>", unsafe_allow_html=True)
+
+                # Mengambil demand dan cuaca untuk kondisi pembanding.
                 s = get_snapshot(date, sel_hour, ["Sepi", "Normal", "Sibuk"])
                 w = get_weather(date, sel_hour)
                 
-                # Small weather stats
+                # Menampilkan ringkasan cuaca.
                 st.markdown(f"<small>{w['temperature']}°C | Prec: {w['precipitation']}mm</small>", unsafe_allow_html=True)
                 
-                # Metrics
+                # Menampilkan total demand pada kondisi tersebut.
                 st.metric("Total Passengers", f"{s['trip_count'].sum():,}")
                 
-                # Simplified Map
+                # Membuat peta ringkas untuk kondisi pembanding.
                 f = go.Figure(go.Choroplethmap(
                     geojson=geo_data, locations=s["PULocationID"], z=s["density_score"],
                     featureidkey="properties.LocationID", colorscale=[[0,"#10B981"],[0.5,"#F59E0B"],[1,"#EF4444"]],
@@ -415,8 +462,8 @@ else:
                                 margin=dict(l=0,r=0,t=0,b=0), height=350, paper_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(f, use_container_width=True)
                 
-                # Top 3
-                st.markdown("<div style='font-size:0.8rem; margin-top:10px;'>Top 3 Critical Hubs:</div>", unsafe_allow_html=True)
-                st.dataframe(s.sort_values("trip_count", ascending=False).head(3)[["zone", "trip_count"]], hide_index=True)
+                # Menampilkan tiga zona tersibuk.
+                st.markdown(f"<div style='font-size:0.8rem; margin-top:10px;'>Top {pq_limit} Critical Hubs:</div>", unsafe_allow_html=True)
+                st.dataframe(s.sort_values("trip_count", ascending=False).head(pq_limit)[["zone", "trip_count"]], hide_index=True)
 
 st.markdown("<div style='text-align:center; padding:2rem; color:#64748B; font-size:0.7rem;'>PROYEK RDV KELOMPOK 3 | ANALISIS SPASIAL NYC 2026</div>", unsafe_allow_html=True)
